@@ -2,7 +2,7 @@ import pygame, math, random, copy, numpy
 
 FPS = 60
 
-screen = pygame.display.set_mode((500,500))
+screen = pygame.display.set_mode((500,500),pygame.NOFRAME)
 clock = pygame.time.Clock()
 
 pygame.font.init()
@@ -10,49 +10,37 @@ pygame.font.init()
 generation = 1
 
 class NeuralNetwork:
-    def __init__(self):
-        self.hidden_layer = [Neuron(6) for _ in range(8)]
-        self.output = [Neuron(8) for _ in range(3)]
+    def __init__(self,input_size):
+        self.weights1 = numpy.random.uniform(-1,1,(input_size,8)) # Initialising Hidden layers weights
+        self.bias1 = numpy.random.uniform(-1,1,(1,8)) # Hiddens Bias
 
-    def hidden_calc(self,inputs):
-        a = []
-        for n in self.hidden_layer:
-            a.append(n.forward(inputs))
-        return a
-    
-    def outputs(self,inputs):
-        out = []
-        a = self.hidden_calc(inputs)
-        for n in self.output:
-            out.append(n.forward(a))
-        return out
-    
-    def mutate(self):
-        for n in self.hidden_layer:
-            if random.randint(1,10) == 1:
-                n.mutate()
-        for n in self.output:
-            if random.randint(1,10) == 1:
-                n.mutate()
+        self.weights2 = numpy.random.uniform(-1, 1, (8, 2)) # Output Layers weights
+        self.bias2 = numpy.random.uniform(-1, 1, (1, 2)) # Outputs Bias
 
-class Neuron:
-    def __init__(self,num_inputs):
-        self.weights = [random.uniform(-1, 1) for _ in range(num_inputs)]
-        self.bias = random.uniform(-1, 1)
+    def forward_prop(self,inputs):
+        self.z1 = numpy.dot(inputs,self.weights1) + self.bias1 # Matrix Multiplication for Hidden layer
+        self.a1 = numpy.tanh(self.z1)
 
-    def forward(self,inputs):   
-        z = 0
-        for i in range(len(self.weights)):
-            z += self.weights[i] * inputs[i]
-        z += self.bias
-        z = math.tanh(z)
-        return z
-    def mutate(self):
-        t = random.randint(0,len(self.weights)-1) 
-        self.weights[t] += random.uniform(-0.2,0.2)
+        self.a2 = numpy.dot(self.a1,self.weights2) + self.bias2 # Matrix Multiplication for output layer
+        self.a2 = numpy.tanh(self.a2) # Activation Function
+        return self.a2
+         
+    def mutate(self,Mutation_scale):
+        mask = numpy.random.uniform(0,1,(self.weights1.shape))
+        mutation = numpy.random.uniform(-Mutation_scale,Mutation_scale,(self.weights1.shape))
+        self.weights1 = numpy.where(mask < 0.05,mutation + self.weights1,self.weights1) # Mutation for hidden Weights
 
-        if random.randint(1,10) == 1:
-            self.bias += random.uniform(-0.2,0.2)
+        mask = numpy.random.uniform(0,1,(self.bias1.shape))
+        mutation = numpy.random.uniform(-Mutation_scale,Mutation_scale,(self.bias1.shape))
+        self.bias1 = numpy.where(mask < 0.05,mutation + self.bias1,self.bias1) # Mutation for hidden Bias
+
+        mask = numpy.random.uniform(0,1,(self.weights2.shape))
+        mutation = numpy.random.uniform(-Mutation_scale,Mutation_scale,(self.weights2.shape))
+        self.weights2 = numpy.where(mask < 0.05,mutation + self.weights2,self.weights2) #Mutation for Output Weights
+        
+        mask = numpy.random.uniform(0,1,(self.bias2.shape))
+        mutation = numpy.random.uniform(-Mutation_scale,Mutation_scale,(self.bias2.shape))
+        self.bias2 = numpy.where(mask < 0.05,mutation + self.bias2,self.bias2) #Mutation for Output Bias
     
 class Rocket:
     def __init__(self,x,y):
@@ -61,12 +49,12 @@ class Rocket:
 
         self.x = x 
         self.y = y
-        self.angle = 10
+        self.angle = 0
         self.turn_speed = 3
         self.width = 20
         self.height = 50
 
-        self.fuel = 50
+        self.fuel = 30
 
         self.vx = 0
         self.vy = 0
@@ -74,24 +62,10 @@ class Rocket:
         self.gravity = 0.08
         self.thrust = 0.15
 
-    def handle_inputs(self):
-        keys = pygame.key.get_pressed()
-        
-        if keys[pygame.K_d] and self.y < 400:
-            self.angle += self.turn_speed
-
-        if keys[pygame.K_SPACE] and self.fuel > 0:
-            rad = math.radians(self.angle)
-            
-            self.vx += math.sin(rad) * self.thrust
-            self.vy -= math.cos(rad) * self.thrust
-
-            self.fuel -= 0.1
-
     def thrust_engine(self, power):
         if self.fuel <= 0:
             return
-
+        # Function for Neural Nets thrust output
         rad = math.radians(self.angle)
 
         self.vx += math.sin(rad) * self.thrust * power
@@ -102,25 +76,24 @@ class Rocket:
     def calculate_fitness(self,pad_x):
         pad_center =  pad_x + 50
         dx = pad_center - self.x
-
         angle = abs(self.get_normalised_angle())
-        self.fitness = 2000
 
-        self.fitness -= abs(dx) * 2
-        self.fitness -= abs(self.vx) * 200
-        self.fitness -= abs(self.vy) * 400
-        self.fitness -= abs(angle) * 40
+        self.fitness = 5000
 
-    def update(self):
-        global random_x
+        proximity = max(0, 1 - abs(dx) / 200)
+        self.fitness -= abs(self.vx) * (200 + proximity * 800)
 
+        self.fitness -= abs(self.vy) * 300
+        self.fitness -= angle * 30
+        self.fitness -= abs(dx) * 10
+
+    def update(self,random_x):
         if not self.active:
             return
 
         GROUND_Y = 450 - self.height / 2
         PAD_Y = 400 - self.height / 2
 
-        self.handle_inputs()
         self.vy += self.gravity
 
         self.y += self.vy
@@ -131,8 +104,22 @@ class Rocket:
 
             landing_angle = self.get_normalised_angle()
 
-            if abs(self.vy) < 1 and abs(landing_angle) <= 10:
-                self.fitness += 5000
+            if abs(self.vy) < 1 and abs(landing_angle) <= 20:
+                pad_center = random_x + 50
+                landing_precision = abs(pad_center - self.x) 
+
+                landing_angle = abs(self.get_normalised_angle())
+                landing_speed = abs(self.vy)
+
+                landing_bonus = 5000
+
+                landing_bonus -= landing_precision * 40   
+                landing_bonus -= landing_angle * 100      
+                landing_bonus -= landing_speed * 1000      
+
+                landing_bonus += self.fuel * 20     
+
+                self.fitness += max(landing_bonus, 1000)
                 print(f"SAFE LANDING  {self.fitness}")
             else:
                 self.calculate_fitness(random_x)
@@ -162,8 +149,12 @@ class Rocket:
         rect = rotated.get_rect(center=(self.x, self.y))
 
         screen.blit(rotated, rect)
+
     def get_normalised_angle(self):
         return (self.angle + 180) % 360 - 180
+
+def get_rocket_fitness(index):
+    return rockets[index].fitness
 
 rocket = Rocket(240,100)
 
@@ -178,9 +169,9 @@ rockets = [Rocket(240, 100) for _ in range(population_size)]
 print("New rockets:", len(rockets))
 print("First rocket:", rockets[0].x, rockets[0].y, rockets[0].active)
 
-networks = [NeuralNetwork() for _ in range(population_size)]
+networks = [NeuralNetwork(6) for _ in range(population_size)]
 
-
+Mutation_scale = 0.5
 Running = True
 
 while Running:
@@ -200,57 +191,52 @@ while Running:
 
         altitude = 400 - rocket.y
 
-        inputs = [
-            rocket.vx / 5,
-            rocket.vy / 5,
-            rocket.get_normalised_angle() / 180,
-            altitude/400,
-            dx / 250,
-            rocket.fuel / 50
-        ]
+        inputs = numpy.array([rocket.vx / 5,rocket.vy / 5,rocket.get_normalised_angle() / 180,altitude/400,dx / 250,rocket.fuel / 50])
 
-        output = nn.outputs(inputs)
+        output = nn.forward_prop(inputs)
+        output = output.tolist()
 
-        left_strength = (output[0] + 1) / 2
-        right_strength = (output[1] + 1) / 2
+        turn = output[0][0]
 
-        rocket.angle -= left_strength * rocket.turn_speed
-        rocket.angle += right_strength * rocket.turn_speed
+        rocket.angle -= turn * rocket.turn_speed
 
-        throttle = (output[2] + 1) / 2
+        throttle = (output[0][1] + 1) / 2
         rocket.thrust_engine(throttle)
 
-        rocket.update()
+        rocket.update(random_x)
 
 
     # NEW GENERATION
     if all(not rocket.active for rocket in rockets):
+        sorted_indices = sorted(range(population_size), key=get_rocket_fitness, reverse=True)
 
-        best_index = max(
-            range(population_size),
-            key=lambda i: rockets[i].fitness
-        )
+        # Top 5 Neural Nets
+        top_5_indices = sorted_indices[:5]
 
-        best_network = networks[best_index]
-
+        # Print Highest score
+        best_index = top_5_indices[0]
         print("Generation:", generation)
         print("Best fitness:", rockets[best_index].fitness)
 
-        new_networks = [copy.deepcopy(best_network)]
+        new_networks = []
 
-        for _ in range(population_size - 1):
-            child = copy.deepcopy(best_network)
-            child.mutate()
+        for i in top_5_indices:
+            new_networks.append(networks[i])
+
+        for _ in range(population_size-5):
+            parent_index = random.choice(top_5_indices)
+            child = copy.deepcopy(networks[parent_index])
+            child.mutate(Mutation_scale)
             new_networks.append(child)
 
         networks = new_networks
 
-        rockets = [
-            Rocket(240, 100)
-            for _ in range(population_size)
-        ]
+        rockets = [Rocket(240, 100)for _ in range(population_size)]
+        random_x = random.randint(100, 400)
 
         generation += 1
+        Mutation_scale = max(Mutation_scale - 0.01,0.02)
+        print(f"{Mutation_scale:2f}")
 
 
     # DRAW
@@ -267,3 +253,4 @@ while Running:
         rocket.draw()
     pygame.display.flip()
     clock.tick(FPS)
+    
