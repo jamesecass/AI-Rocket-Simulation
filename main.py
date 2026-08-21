@@ -50,11 +50,11 @@ class Rocket:
         self.x = x 
         self.y = y
         self.angle = 0
-        self.turn_speed = 3
+        self.turn_speed = 6
         self.width = 20
         self.height = 50
 
-        self.fuel = 30
+        self.fuel = 50
 
         self.vx = 0
         self.vy = 0
